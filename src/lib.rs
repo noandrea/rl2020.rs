@@ -10,27 +10,24 @@ use std::vec::Vec;
 use wasm_bindgen::prelude::*;
 
 const REVOCATION_LIST_2020_TYPE: &str = "RevocationList2020";
+const REVOCATION_LIST_2020_STATUS_TYPE: &str = "RevocationList2020Status";
 // Minimum bitstring size is 16kb
 const MIN_BITSTRING_SIZE_KN: usize = 16;
 // Maximum bistsring size is 128kb
 const MAX_BITSTRING_SIZE_KB: usize = 128;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Credential {
-    #[serde(rename = "credentialStatus")]
-    credential_status: CredentialStatus,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CredentialStatus {
-    #[serde(rename = "id")]
-    id: String,
-    #[serde(rename = "type")]
-    typ: String,
-    #[serde(rename = "revocationListIndex")]
-    revocation_list_index: u32,
-    #[serde(rename = "revocationListCredential")]
-    revocation_list_credential: String,
+/// CredentialStatus represent the status block of a credential issued using the RevocationList2020
+/// as a revocation method. See https://w3c-ccg.github.io/vc-status-rl-2020/#revocationlist2020status
+pub trait CredentialStatus {
+    /// returns the credential list ID to check for revocation,
+    /// and the index within the list, that is:
+    /// - revocationListCredential
+    /// - revocationListIndex
+    fn coordinates(&self) -> (String, u64);
+    /// returns the ID and the Type of the credential status itself, that is
+    /// - ID
+    /// - Type
+    fn type_def(&self) -> (String, String);
 }
 
 #[derive(Debug)]
@@ -78,10 +75,6 @@ pub struct RevocationList2020 {
 impl Display for RevocationList2020 {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        // Write strictly the first element into the supplied output
-        // stream: `f`. Returns `fmt::Result` which indicates whether the
-        // operation succeeded or failed. Note that `write!` uses syntax which
-        // is very similar to `println!`.
         match serde_json::to_string(self) {
             Ok(s) => write!(f, "{}", s),
             Err(_) => Err(std::fmt::Error),
@@ -180,14 +173,6 @@ impl RevocationList2020 {
         return self.bit_set.len() / 1024;
     }
 
-    pub fn revoke(&mut self, index: u64) -> Result<(), CredentialError> {
-        self.update(RevocationStatus::Revoke, index)
-    }
-
-    pub fn reset(&mut self, index: u64) -> Result<(), CredentialError> {
-        self.update(RevocationStatus::Reset, index)
-    }
-
     pub fn update(&mut self, action: RevocationStatus, index: u64) -> Result<(), CredentialError> {
         self.check_bounds(index)?;
 
@@ -214,10 +199,41 @@ impl RevocationList2020 {
         }
     }
 
-    pub fn is_revoked(&self, index: u64) -> Result<bool, CredentialError> {
-        self.get(index).map(|x| match x {
-            RevocationStatus::Revoke => true,
-            RevocationStatus::Reset => false,
+    fn check_ids(&self, credential: &impl CredentialStatus) -> Result<u64, CredentialError> {
+        // check type
+        if credential.type_def().1 != REVOCATION_LIST_2020_STATUS_TYPE {
+            return Err(CredentialError::new(&format!(
+                "credential status type doesn't match {}",
+                REVOCATION_LIST_2020_STATUS_TYPE
+            )));
+        }
+        // check coordinates
+        let coords = credential.coordinates();
+        if coords.0 != self.id {
+            return Err(CredentialError::new(&format!(
+                "credential status doesn't match the current revocation lists, expected {}, got {}",
+                self.id, coords.0,
+            )));
+        }
+        Ok(coords.1)
+    }
+
+    pub fn revoke(&mut self, credential: &impl CredentialStatus) -> Result<(), CredentialError> {
+        self.check_ids(credential)
+            .and_then(|i| self.update(RevocationStatus::Revoke, i))
+    }
+
+    pub fn reset(&mut self, credential: &impl CredentialStatus) -> Result<(), CredentialError> {
+        self.check_ids(credential)
+            .and_then(|i| self.update(RevocationStatus::Reset, i))
+    }
+
+    pub fn is_revoked(&self, credential: &impl CredentialStatus) -> Result<bool, CredentialError> {
+        self.check_ids(credential).and_then(|i| {
+            self.get(i).map(|x| match x {
+                RevocationStatus::Revoke => true,
+                RevocationStatus::Reset => false,
+            })
         })
     }
 }
@@ -225,7 +241,9 @@ impl RevocationList2020 {
 #[cfg(test)]
 mod tests {
 
-    use crate::{Credential, RevocationList2020, RevocationStatus};
+    use super::{
+        CredentialStatus, RevocationList2020, RevocationStatus, REVOCATION_LIST_2020_STATUS_TYPE,
+    };
     use rand::Rng;
     use std::str::FromStr;
 
@@ -267,10 +285,6 @@ mod tests {
             assert_eq!(get.is_err(), false);
             let get = get.unwrap();
             assert_eq!(get, RevocationStatus::Revoke);
-            let rev = rl.is_revoked(credential_index);
-            assert_eq!(rev.is_err(), false);
-            let rev = rev.unwrap();
-            assert_eq!(rev, true);
 
             let up = rl.update(RevocationStatus::Reset, credential_index);
             assert_eq!(up.is_err(), false);
@@ -279,13 +293,108 @@ mod tests {
             assert_eq!(get.is_err(), false);
             let get = get.unwrap();
             assert_eq!(get, RevocationStatus::Reset);
-            let rev = rl.is_revoked(credential_index);
-            assert_eq!(rev.is_err(), false);
-            let rev = rev.unwrap();
-            assert_eq!(rev, false);
         }
 
+        // update out of scope
+        let up = rl.update(RevocationStatus::Revoke, 200_000_000);
+        assert_eq!(up.is_err(), true);
+
         println!("{}", rl);
+    }
+
+    #[test]
+    fn test_credential_status() {
+        let rl = RevocationList2020::new("https://example.rl/1", 60);
+        assert_eq!(rl.is_err(), false);
+        let mut rl = rl.unwrap();
+
+        struct VC {
+            id: String,
+            typ: String,
+            rl_id: String,
+            rl_idx: u64,
+        }
+        impl VC {
+            pub fn new(id: &str, typ: &str, rl_id: &str, rl_idx: u64) -> Self {
+                VC {
+                    id: String::from(id),
+                    typ: String::from(typ),
+                    rl_id: String::from(rl_id),
+                    rl_idx: rl_idx,
+                }
+            }
+        }
+        impl CredentialStatus for VC {
+            fn type_def(&self) -> (String, String) {
+                (self.id.to_owned(), self.typ.to_owned())
+            }
+            fn coordinates(&self) -> (String, u64) {
+                (self.rl_id.to_owned(), self.rl_idx)
+            }
+        }
+
+        let tests = vec![
+            (
+                VC::new(
+                    "test-1#213",
+                    REVOCATION_LIST_2020_STATUS_TYPE,
+                    "https://example.rl/1",
+                    8743,
+                ),
+                Ok(()),
+            ),
+            (
+                VC::new(
+                    "test-1#213",
+                    REVOCATION_LIST_2020_STATUS_TYPE,
+                    "test-1123", // ERROR: id doesnt match
+                    8743,
+                ),
+                Err(()),
+            ),
+            (
+                VC::new(
+                    "test-1#213",
+                    REVOCATION_LIST_2020_STATUS_TYPE,
+                    "https://example.rl/1",
+                    200_000_000, // ERROR: index out of bound
+                ),
+                Err(()),
+            ),
+            (
+                VC::new(
+                    "test-1#213",
+                    "diffenrntType", // ERROR: type doesnt match
+                    "https://example.rl/1",
+                    56_741,
+                ),
+                Err(()),
+            ),
+        ];
+
+        // TODO: improve tests
+        for (vc, outcome) in tests {
+            let rr = rl.is_revoked(&vc);
+            assert_eq!(rr.is_err(), outcome.is_err());
+            if outcome.is_err() {
+                continue;
+            }
+            assert_eq!(rr.unwrap(), false);
+
+            let rr = rl.revoke(&vc);
+            assert_eq!(rr.is_err(), outcome.is_err());
+
+            let rr = rl.is_revoked(&vc);
+            assert_eq!(rr.is_err(), outcome.is_err());
+            assert_eq!(rr.unwrap(), true);
+
+            let rr = rl.reset(&vc);
+            assert_eq!(rr.is_err(), outcome.is_err());
+
+            let rr = rl.is_revoked(&vc);
+            assert_eq!(rr.is_err(), outcome.is_err());
+            assert_eq!(rr.unwrap(), false);
+        }
     }
 
     #[test]
@@ -307,48 +416,5 @@ mod tests {
             rl.unwrap().encoded_list,
             "eJzswDEBAAAAwiD7pzbGHhgAAAAAAAAAAAAAAAAAAACQewAAAP//QAAAAQ=="
         )
-    }
-
-    #[test]
-    fn load_credential() {
-        // Some JSON input data as a &str. Maybe this comes from the user.
-        let data = r#"
-        {
-            "@context": [
-                "https://www.w3.org/2018/credentials/v1",
-                "https://w3id.org/vc-revocation-list-2020/v1"
-            ],
-            "id": "https://example.com/credentials/23894672394",
-            "type": [
-                "VerifiableCredential"
-            ],
-            "issuer": "did:example:12345",
-            "issued": "2020-04-05T14:27:42Z",
-            "credentialStatus": {
-                "id": "https://dmv.example.gov/credentials/status/3#7812",
-                "type": "RevocationList2020Status",
-                "revocationListIndex": 7812,
-                "revocationListCredential": "https://example.com/credentials/status/3"
-            },
-            "credentialSubject": {
-                "id": "did:example:abcdefg",
-                "type": "Person"
-            },
-            "proof": {}
-        }"#;
-        // Parse the string of data into a Person object. This is exactly the
-        // same function as the one that produced serde_json::Value above, but
-        // now we are asking it for a Person as output.
-        match serde_json::from_str::<Credential>(data) {
-            Ok(c) => {
-                assert_eq!(c.credential_status.revocation_list_index, 7812);
-            }
-            Err(e) => {
-                println!("{}", e);
-                assert_eq!(1, 2)
-            }
-        }
-
-        // Do things just like with any other Rust data structure.
     }
 }
