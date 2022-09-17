@@ -168,6 +168,7 @@ impl RevocationList2020 {
     pub fn capacity(&self) -> usize {
         self.bit_set.len() * 8
     }
+
     // size returns the size of the bitset int kb
     pub fn size(&self) -> usize {
         return self.bit_set.len() / 1024;
@@ -417,4 +418,117 @@ mod tests {
             "eJzswDEBAAAAwiD7pzbGHhgAAAAAAAAAAAAAAAAAAACQewAAAP//QAAAAQ=="
         )
     }
+}
+
+// WASM stuff
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleCredential {
+    #[serde(rename = "credentialStatus")]
+    credential_status: BasicCredentialStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BasicCredentialStatus {
+    #[serde(rename = "revocationListIndex")]
+    revocation_list_index: u64,
+    #[serde(rename = "revocationListCredential")]
+    revocation_list_credential: String,
+}
+
+/// To be able to use the rl2020 library it's neccessary
+/// to implement the CredentialStatus trait
+impl CredentialStatus for SimpleCredential {
+    fn coordinates(&self) -> (String, u64) {
+        (
+            self.credential_status.revocation_list_credential.to_owned(),
+            self.credential_status.revocation_list_index.to_owned(),
+        )
+    }
+
+    fn type_def(&self) -> (String, String) {
+        ("42".to_owned(), REVOCATION_LIST_2020_STATUS_TYPE.to_owned())
+    }
+}
+
+#[wasm_bindgen]
+pub fn init_panic_hook() {
+    console_error_panic_hook::set_once();
+}
+
+#[wasm_bindgen]
+pub fn is_revoked(
+    revocation_list_credential: &str,
+    subject_credential: &str,
+) -> Result<bool, JsValue> {
+    let rl = RevocationList2020::from_str(revocation_list_credential).map_err(|err| {
+        JsValue::from(&format!(
+            "error parsing the revocation list: {}",
+            err.to_string()
+        ))
+    })?;
+    let cr = serde_json::from_str::<SimpleCredential>(subject_credential).map_err(|err| {
+        JsValue::from(&format!(
+            "error parsing the input credential: {}",
+            err.to_string()
+        ))
+    })?;
+    rl.is_revoked(&cr).map_err(|err| {
+        JsValue::from(&format!(
+            "error checking the revocation status: {}",
+            err.to_string()
+        ))
+    })
+}
+
+#[wasm_bindgen]
+pub fn revoke_credential(
+    revocation_list_credential: &str,
+    subject_credential: &str,
+) -> Result<String, JsValue> {
+    let mut rl = RevocationList2020::from_str(revocation_list_credential).map_err(|err| {
+        JsValue::from(&format!(
+            "error parsing the revocation list: {}",
+            err.to_string()
+        ))
+    })?;
+    let cr = serde_json::from_str::<SimpleCredential>(subject_credential).map_err(|err| {
+        JsValue::from(&format!(
+            "error parsing the input credential: {}",
+            err.to_string()
+        ))
+    })?;
+    rl.revoke(&cr).map_err(|err| {
+        JsValue::from(&format!(
+            "error checking the revocation status: {}",
+            err.to_string()
+        ))
+    })?;
+    Ok(rl.to_string())
+}
+
+#[wasm_bindgen]
+pub fn reset_credential(
+    revocation_list_credential: &str,
+    subject_credential: &str,
+) -> Result<String, JsValue> {
+    let mut rl = RevocationList2020::from_str(revocation_list_credential).map_err(|err| {
+        JsValue::from(&format!(
+            "error parsing the revocation list: {}",
+            err.to_string()
+        ))
+    })?;
+    let cr = serde_json::from_str::<SimpleCredential>(subject_credential).map_err(|err| {
+        JsValue::from(&format!(
+            "error parsing the input credential: {}",
+            err.to_string()
+        ))
+    })?;
+    rl.reset(&cr).map_err(|err| {
+        JsValue::from(&format!(
+            "error checking the revocation status: {}",
+            err.to_string()
+        ))
+    })?;
+    Ok(rl.to_string())
 }
