@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/mustard-ui@latest/dist/css/mustard-ui.min.css"
+    />
+
+    <title>hello-wasm example</title>
+  </head>
+  <body>
+    <div class="main" style="min-height: 100vh">
+      <div class="row">
+        <div class="col col-sm-6">
+          <button id="btn_is_revoked">Check revocation status</button>
+          <button id="revoke_credential">Revoke Credential</button>
+          <button id="reset_credential">Reset Credential</button>
+        </div>
+        <div class="col col-sm-6">
+          <h4 id="result"></h4>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col col-sm-6">
+          <textarea id="revocation_list" style="min-height: 80vh">
+    
+        {"@context": [
+        "https://www.w3.org/2018/credentials/v1",
+        "https://w3id.org/vc-revocation-list-2020/v1"
+        ],
+        "id": "https://example.com/credentials/23894672394",
+        "type": [
+            "VerifiableCredential",
+            "RevocationList2020Credential"
+        ],
+        "issuer": "did:example:credential-issuer",
+        "issued": "2020-04-05T14:27:42Z",
+        "credentialSubject": {"id":"https://example.com/credentials/status/3","type":"RevocationList2020","encodedList":"eJztwDEBAAAAwqD1T20MHygAAAAAAAAAAAAAAAAAAADgbUAAAAE="},
+        "proof": {}
+      }
+          
+          </textarea>
+        </div>
+        <div class="col col-sm-6">
+          <div class="form-control">
+            <textarea id="credential" style="min-height: 80vh">
+          {
+            "@context": [
+                "https://www.w3.org/2018/credentials/v1"
+            ],
+            "id": "https://example.com/credentials/23894672394",
+            "type": [
+                "VerifiableCredential"
+            ],
+            "issuer": "did:example:12345",
+            "issued": "2020-04-05T14:27:42Z",
+            "credentialStatus": {
+                "id": "https://dmv.example.gov/credentials/status/3#7812",
+                "type": "RevocationList2020Status",
+                "revocationListIndex": 7812,
+                "revocationListCredential": "https://example.com/credentials/status/3"
+            },
+            "credentialSubject": {
+                "id": "did:example:abcdefg",
+                "type": "Person"
+            },
+            "proof": {}
+        }
+        </textarea
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- {
+      "@context": [
+          "https://www.w3.org/2018/credentials/v1",
+          "https://w3id.org/vc-revocation-list-2020/v1"
+      ],
+      "id": "https://example.com/credentials/23894672394",
+      "type": [
+          "VerifiableCredential",
+          "RevocationList2020Credential"
+      ],
+      "issuer": "did:example:credential-issuer",
+      "issued": "2020-04-05T14:27:42Z",
+      "credentialSubject": {"id":"https://example.com/credentials/status/3","type":"RevocationList2020","encodedList":"eJztwDEBAAAAwqD1T20MHygAAAAAAAAAAAAAAAAAAADgbUAAAAE="},
+      "proof": {}
+    } -->
+
+    <script type="module">
+      function reset() {
+        let jsids = ["revocation_list", "credential"];
+        jsids.forEach(function (v, i) {
+          let data = JSON.parse(document.getElementById(v).value);
+          document.getElementById(v).value = JSON.stringify(data, null, 2);
+        });
+        document.getElementById("result").innerHTML = "";
+      }
+
+      const collection = document.getElementsByTagName("textarea");
+      for (let i = 0; i < collection.length; i++) {
+        collection[i].addEventListener("change", function () {
+          reset();
+        });
+      }
+
+      // parse a credential and extract the subject
+      // returns the subject json encoded
+      function extract_credential_subject(cred_str) {
+        let data = JSON.parse(cred_str);
+        if (data.credentialSubject) {
+          return JSON.stringify(data.credentialSubject);
+        }
+        return "{}";
+      }
+
+      // replace the credential subject of a credential
+      // and returns the updated credential as string
+      function replace_credential_subject(cred_str, subj_str) {
+        let cred = JSON.parse(cred_str);
+        cred.credentialSubject = JSON.parse(subj_str);
+        return JSON.stringify(cred);
+      }
+
+      import init, {
+        init_panic_hook,
+        is_revoked,
+        revoke_credential,
+        reset_credential,
+      } from "./pkg/rl2020.js";
+      init().then(() => {
+        init_panic_hook();
+
+        reset();
+        //check revocation
+        document
+          .getElementById("btn_is_revoked")
+          .addEventListener("click", function () {
+            let rl = document.getElementById("revocation_list").value;
+            console.log("revocation list", rl);
+            let cr = document.getElementById("credential").value;
+            console.log("credential", cr);
+
+            try {
+              let revoked = is_revoked(extract_credential_subject(rl), cr);
+              let result = document.getElementById("result");
+              console.log(revoked);
+              if (revoked) {
+                result.style.color = "red";
+                result.innerHTML = "Credential is REVOKED";
+              } else {
+                result.style.color = "green";
+                result.innerHTML = "Credential is NOT revoked";
+              }
+            } catch (error) {
+              console.log(error);
+            }
+          });
+        // revoke
+        document
+          .getElementById("revoke_credential")
+          .addEventListener("click", function () {
+            let rl = document.getElementById("revocation_list").value;
+            console.log("revocation list", rl);
+            let cr = document.getElementById("credential").value;
+            console.log("credential", cr);
+            let result = document.getElementById("result");
+            try {
+              let res = revoke_credential(extract_credential_subject(rl), cr);
+              document.getElementById("revocation_list").value =
+                replace_credential_subject(rl, res);
+              reset();
+            } catch (error) {
+              console.log(error);
+              result.style.color = "red";
+              result.innerHTML = "Revocation failed<br>" + error;
+            }
+          });
+        // reset
+        document
+          .getElementById("reset_credential")
+          .addEventListener("click", function () {
+            let rl = document.getElementById("revocation_list").value;
+            console.log("revocation list", rl);
+            let cr = document.getElementById("credential").value;
+            console.log("credential", cr);
+            let result = document.getElementById("result");
+            try {
+              let res = reset_credential(extract_credential_subject(rl), cr);
+              document.getElementById("revocation_list").value =
+                replace_credential_subject(rl, res);
+              reset();
+            } catch (error) {
+              console.log(error);
+              result.style.color = "red";
+              result.innerHTML = "Reset failed<br>" + error;
+            }
+          });
+      });
+    </script>
+  </body>
+</html>
