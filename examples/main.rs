@@ -1,11 +1,11 @@
-use rl2020::{CredentialStatus, RevocationList2020};
+use rl2020::{CredentialError, CredentialStatus, RevocationList2020};
 use serde_derive::{Deserialize, Serialize};
 
-fn main() {
+fn main() -> Result<(), CredentialError> {
     println!("Hello, RevocationList2020!");
 
     // create a new revocation list
-    let mut rl = RevocationList2020::new("https://example.com/credentials/status/3", 16).unwrap();
+    let mut rl = RevocationList2020::new("https://example.com/credentials/status/3", 16)?;
     println!("{}", rl);
 
     // create a credential that uses the revocation list
@@ -13,24 +13,26 @@ fn main() {
     let c_idx = c.credential_status.revocation_list_index;
 
     // check if the credential is revoked
-    let revoked = rl.is_revoked(&c).unwrap();
+    let revoked = rl.is_revoked(&c)?;
     println!("credential at index {} is revoked? {}", c_idx, revoked);
     // revoke the credential
     println!("revoking credential at index {}", c_idx);
-    rl.revoke(&c).unwrap();
+    rl.revoke(&c)?;
     // print the updated revocation list
     println!("{}", rl);
     //check if the credential is revoked
-    let revoked = rl.is_revoked(&c).unwrap();
+    let revoked = rl.is_revoked(&c)?;
     println!("credential at index {} is revoked? {}", c_idx, revoked);
     // reset the credential revocation
     println!("resetting status for credential at index {}", c_idx);
-    rl.reset(&c).unwrap();
+    rl.reset(&c)?;
     // print the updated revocation list
     println!("{}", rl);
     //check if the credential is revoked
-    let revoked = rl.is_revoked(&c).unwrap();
+    let revoked = rl.is_revoked(&c)?;
     println!("credential at index {} is revoked? {}", c_idx, revoked);
+
+    Ok(())
 }
 
 fn create_credential() -> VerifableCredential {
