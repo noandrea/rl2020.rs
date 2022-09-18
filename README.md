@@ -16,7 +16,7 @@ The following demo uses the wasm library on a web page.
 
 The following example shows how to use the library with Rust.
 
-https://github.com/noandrea/rl2020.rs/blob/64df990b8a9ac6213fb9459929e990bcb3bbc4fa/examples/main.rs#L41-L81
+https://github.com/noandrea/rl2020.rs/blob/aa3b2f099c6faa9f2ad45618cc3b0d4ae6bc0f4e/examples/main.rs#L5-L33
 
 To run the example locally use the command:
 
