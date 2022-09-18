@@ -3,10 +3,12 @@
 name = "rl2020"
 version = "0.1.0"
 edition = "2021"
-authors = ["<no.andrea@gmail.com>"]
+authors = ["Andrea Giacobino <no.andrea@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/noandrea/rl2020.rs"
+homepage = "https://github.com/noandrea/rl2020.rs"
 description = "Implementation of the RevocationList2020 format"
+keywords = ["SSI", "identity", "privacy", "revocation-lists", "revocation-registry"]
 
 [lib]
 crate-type = ["cdylib", "lib"]
