@@ -11,6 +11,18 @@ The following demo uses the wasm library on a web page.
 [![Demo](https://img.youtube.com/vi/XVyVVuNdWsE/0.jpg)](https://www.youtube.com/watch?v=XVyVVuNdWsE)
 
 
+To run the demo locally, build the javascript library using:
+
+```sh
+wasm-pack build --target web --debug
+```
+
+and then launch a local web server, for example using python:
+
+```sh
+python3 -m http.server 7654
+```
+
 
 ## Usage/Examples
 
@@ -33,3 +45,12 @@ To run tests, run the following command
   cargo test
 ```
 
+## Installation
+
+### Rust
+
+The rust library is published on [crates.io](https://crates.io/crates/rl2020)
+
+### Npm
+
+The wasm library is published on [npmjs](https://www.npmjs.com/package/rl2020)
