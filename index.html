@@ -159,6 +159,8 @@
               }
             } catch (error) {
               console.log(error);
+              result.style.color = "red";
+              result.innerHTML = "Check failed<br>" + error;
             }
           });
         // revoke
